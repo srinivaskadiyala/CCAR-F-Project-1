@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, HookMatcher,
-                              ResultMessage, ToolUseBlock, query)
+                              ResultMessage, ToolResultBlock, ToolUseBlock, UserMessage, query)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -23,6 +23,11 @@ from validate import read_csv, validate_merge, write_csv  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "app1.csv"
 SUBAGENT_TOOLS = {"Task", "Agent"}
+STAGE_AGENTS = {"agent1_dates", "agent2_math"}
+SEQUENTIAL_NOTE = (
+    "\nOVERRIDE for this run: do NOT launch agent1_dates and agent2_math together. Launch "
+    "agent1_dates, wait for it to finish, and only then launch agent2_math in a later response."
+)
 
 
 def make_timestamp() -> str:
@@ -47,7 +52,7 @@ def build_options(ts: str) -> ClaudeAgentOptions:
     )
 
 
-def task_prompt(ts: str) -> str:
+def task_prompt(ts: str, sequential: bool = False) -> str:
     work = ROOT / "work" / ts
     return (
         f"Run timestamp: {ts}\n"
@@ -57,6 +62,7 @@ def task_prompt(ts: str) -> str:
         f"Agent 2 patch path: {work / 'agent2_patch.json'}\n"
         f"Agent 3 outputs: {work / 'merged.csv'} and {work / 'merge_report.json'}\n"
         "Process the source CSV as described in your instructions."
+        + (SEQUENTIAL_NOTE if sequential else "")
     )
 
 
@@ -64,17 +70,29 @@ async def run_coordinator(prompt: str, options: ClaudeAgentOptions) -> dict:
     """Stream one coordinator run; log parallel launches and elapsed time."""
     start = time.monotonic()
     first_launch = None
+    stage_ids: set[str] = set()   # tool_use ids of agent1/agent2 launches
+    stage_done: float | None = None
     # The SDK may emit one AssistantMessage per content block, so group
     # top-level subagent launches by the API message they came from.
     launches_by_response: dict[str, list[str]] = {}
     cost = None
+    stage_start: float | None = None
     async for msg in query(prompt=prompt, options=options):
         if isinstance(msg, AssistantMessage) and msg.parent_tool_use_id is None:
             for b in msg.content:
                 if isinstance(b, ToolUseBlock) and b.name in SUBAGENT_TOOLS:
                     first_launch = first_launch or time.monotonic()
+                    if b.input.get("subagent_type") in STAGE_AGENTS:
+                        stage_start = stage_start or time.monotonic()
+                        stage_ids.add(b.id)
                     launches_by_response.setdefault(msg.message_id or msg.uuid, []).append(
                         b.input.get("subagent_type"))
+        elif isinstance(msg, UserMessage) and isinstance(msg.content, list):
+            for b in msg.content:
+                if isinstance(b, ToolResultBlock) and b.tool_use_id in stage_ids:
+                    stage_ids.discard(b.tool_use_id)
+                    if not stage_ids:
+                        stage_done = time.monotonic()
         elif isinstance(msg, ResultMessage):
             cost = msg.total_cost_usd
             if msg.is_error:
@@ -82,6 +100,7 @@ async def run_coordinator(prompt: str, options: ClaudeAgentOptions) -> dict:
     for names in launches_by_response.values():
         print(f"[coordinator] launched {names} in one response")
     return {"elapsed": time.monotonic() - start,
+            "stage_seconds": (stage_done - stage_start) if stage_start and stage_done else None,
             "since_first_launch": (time.monotonic() - first_launch) if first_launch else None,
             "launch_sizes": [len(v) for v in launches_by_response.values()], "cost": cost}
 
@@ -122,7 +141,7 @@ def write_changelog(ts: str, report: MergeReport, files: list[PatchFile], timing
     return path
 
 
-async def main() -> int:
+async def main(sequential: bool = False) -> int:
     ts = make_timestamp()
     work = ROOT / "work" / ts
     work.mkdir(parents=True)
@@ -130,13 +149,13 @@ async def main() -> int:
     save_manifest(manifest_path, new_manifest(ts))
     options = build_options(ts)
 
-    timing = await run_coordinator(task_prompt(ts), options)
+    timing = await run_coordinator(task_prompt(ts, sequential), options)
     errs, report = verify(ts)
     if errs:
         print(f"[verify] {len(errs)} problem(s); asking coordinator to fix once:")
         for e in errs:
             print("  -", e)
-        retry = (task_prompt(ts) + "\nThe merged file failed verification with these errors. "
+        retry = (task_prompt(ts, sequential) + "\nThe merged file failed verification with these errors. "
                  "Re-invoke the responsible agent(s) once, passing these errors, then re-run "
                  "agent3_merge:\n" + "\n".join(f"- {e}" for e in errs))
         timing = await run_coordinator(retry, options)
@@ -164,4 +183,4 @@ async def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(asyncio.run(main()))
+    sys.exit(asyncio.run(main(sequential="--sequential" in sys.argv)))
