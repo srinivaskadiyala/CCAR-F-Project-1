@@ -7,7 +7,9 @@ from schemas import MergeReport, Patch  # noqa: E402
 from validate import (check_dates, check_shape, check_totals, find_conflicts,  # noqa: E402
                       read_csv, validate_merge)
 
-APP1 = Path(__file__).resolve().parents[1] / "app1.csv"
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
+APP1 = FIXTURES / "sample6.csv"       # original 6-row sample
+REAL = Path(__file__).resolve().parents[1] / "app1.csv"
 
 FIXED = [
     ["Date", "Item", "Jan", "Feb", "Mar", "Total", "Avg"],
@@ -74,3 +76,18 @@ def test_unverifiable_date_is_skipped() -> None:
     rows[1][0] = "TBD"
     assert check_dates(rows)
     assert check_dates(rows, {(1, "Date")}) == []
+
+
+def test_expected_fixture_is_clean_and_same_shape_as_app1() -> None:
+    expected = read_csv(FIXTURES / "expected_app1.csv")
+    assert check_totals(expected) == []
+    assert check_dates(expected) == []
+    assert check_shape(read_csv(REAL), expected) == []
+
+
+def test_app1_is_25_lines_with_seeded_errors() -> None:
+    rows = read_csv(REAL)
+    assert len(rows) == 25                      # header + 23 data rows + TOTAL
+    assert len(check_dates(rows)) == 23         # every date needs normalising
+    # 3 wrong row Totals, 3 wrong row Avgs, 2 wrong TOTAL-row cells
+    assert len(check_totals(rows)) == 8

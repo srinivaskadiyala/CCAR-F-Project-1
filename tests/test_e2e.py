@@ -23,7 +23,7 @@ pytestmark = [
     pytest.mark.skipif(not os.environ.get("ANTHROPIC_API_KEY"), reason="ANTHROPIC_API_KEY not set"),
 ]
 
-EXPECTED_DATES = ["04-MAR-2026", "05-MAR-2026", "06-MAR-2026", "07-MAR-2026", "13-MAR-2026"]
+EXPECTED = ROOT / "tests" / "fixtures" / "expected_app1.csv"
 
 
 def sha(path: Path) -> str:
@@ -53,13 +53,12 @@ def test_pipeline_matches_expected_table(run) -> None:
     ts = next(iter(stamps))  # don't mutate: the fixture deletes these on teardown
 
     rows = read_csv(ROOT / f"app1_updated_{ts}.csv")
-    h = rows[0]
-    col = {name: i for i, name in enumerate(h)}
-    assert [r[col["Date"]] for r in rows[1:6]] == EXPECTED_DATES
-    assert rows[2][col["Total"]] == "75"      # Gadgets
-    assert rows[4][col["Avg"]] == "50"        # Doohickeys
-    assert rows[6][col["Feb"]] == "112"       # TOTAL row
-    assert rows[3][col["Avg"]] == "10"        # Gizmos: blank ignored, unchanged
+    expected = read_csv(EXPECTED)
+    wrong = [(r, c, got, want)
+             for r, (got_row, want_row) in enumerate(zip(rows, expected))
+             for c, (got, want) in enumerate(zip(got_row, want_row)) if got != want]
+    assert len(rows) == len(expected), f"row count {len(rows)} != {len(expected)}"
+    assert not wrong, f"cells differing from expected (row, col, got, want): {wrong}"
 
     assert (ROOT / f"app1_changelog_{ts}.txt").exists()
     assert (ROOT / "work" / ts / "manifest.json").exists()
