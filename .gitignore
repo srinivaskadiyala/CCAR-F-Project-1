@@ -1,0 +1,9 @@
+work/
+*.pyc
+.env
+.env.*
+.DS_Store
+__pycache__/
+.pytest_cache/
+app1_updated_*.csv
+app1_changelog_*.txt
