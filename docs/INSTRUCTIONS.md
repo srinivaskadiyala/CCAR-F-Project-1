@@ -12,7 +12,8 @@ The coordinator starts Agents 1 and 2 at the same time, then Agent 3. The origin
 `app1.csv` is never modified. Results are written next to it as
 `app1_updated_<YYYYMMDD_HHMMSS>.csv` plus `app1_changelog_<YYYYMMDD_HHMMSS>.txt`.
 
-Rules for the project are in `CLAUDE.md`. The step-by-step design is in `docs/TUTORIAL.md`.
+Rules for the project are in `CLAUDE.md` (one folder up). The step-by-step design is in
+`TUTORIAL.md` (same folder).
 
 ---
 
@@ -112,9 +113,11 @@ want it loaded automatically, add `source ~/Training/.env.sh` to `~/.zshrc`.
 
 ## 5. Run the pipeline
 
-Each run costs real money and takes a few minutes. The old 6-row sample cost roughly
-$0.35 to $0.50 and took 90 to 100 seconds; the current 25-line `app1.csv` takes longer
-(the end-to-end test on it took about 3 minutes), and cost grows with file size.
+Each run costs real money and takes a few minutes. On the current 25-line `app1.csv`,
+three measured runs took 2.5 to 3 minutes and cost $0.57 to $0.79 each. (The old 6-row
+sample cost roughly $0.35 to $0.50 and took 90 to 100 seconds.) Cost grows with file
+size. One of those three runs needed the built-in retry (the first merge failed
+verification and was fixed on the second pass), so expect an occasional longer, dearer run.
 
 ```bash
 cd ~/Training/CCAF/project1
@@ -195,7 +198,7 @@ source ~/Training/.env.sh
 pytest -m slow tests/test_e2e.py
 ```
 
-Takes roughly 3 minutes and costs real money (about $0.50 or more). If `ANTHROPIC_API_KEY` is not
+Takes roughly 3 minutes and costs real money (about $0.60 to $0.80). If `ANTHROPIC_API_KEY` is not
 set, these tests skip themselves instead of failing.
 
 LLM output can vary from run to run. If an end-to-end test fails once, run it again
@@ -258,13 +261,14 @@ Tips:
 ```
 project1/
 ├── CLAUDE.md               rules and requirements (R1 to R8) for Claude Code
-├── INSTRUCTIONS.md         this file
 ├── app1.csv                the input data: 25 lines with seeded errors (protected)
 ├── pytest.ini              test settings (slow tests are off by default)
 ├── .claude/
 │   ├── settings.json       permissions (app1.csv is write-protected)
 │   └── rules/              CSV conventions, loaded only when working on CSV/test files
-├── docs/TUTORIAL.md        the design and the build steps
+├── docs/
+│   ├── INSTRUCTIONS.md     this file
+│   └── TUTORIAL.md         the design and the build steps
 ├── src/
 │   ├── main.py             entry point: runs everything, verifies, writes final files
 │   ├── agents.py           the three agent definitions and the coordinator prompt

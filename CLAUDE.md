@@ -32,4 +32,4 @@
 
 ## Documentation
 
-- Treat `INSTRUCTIONS.md` as code: update it in the same change whenever setup steps, commands, test counts, costs, file layout or behaviour it describes change.
+- Treat `docs/INSTRUCTIONS.md` as code: update it in the same change whenever setup steps, commands, test counts, costs, file layout or behaviour it describes change.
