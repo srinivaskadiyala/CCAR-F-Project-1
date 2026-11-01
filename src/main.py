@@ -64,24 +64,26 @@ async def run_coordinator(prompt: str, options: ClaudeAgentOptions) -> dict:
     """Stream one coordinator run; log parallel launches and elapsed time."""
     start = time.monotonic()
     first_launch = None
-    parallel_turns: list[int] = []
+    # The SDK may emit one AssistantMessage per content block, so group
+    # top-level subagent launches by the API message they came from.
+    launches_by_response: dict[str, list[str]] = {}
     cost = None
     async for msg in query(prompt=prompt, options=options):
-        if isinstance(msg, AssistantMessage):
-            launches = [b for b in msg.content
-                        if isinstance(b, ToolUseBlock) and b.name in SUBAGENT_TOOLS]
-            if launches:
-                first_launch = first_launch or time.monotonic()
-                names = [b.input.get("subagent_type") for b in launches]
-                print(f"[coordinator] launched {names} in one response")
-                parallel_turns.append(len(launches))
+        if isinstance(msg, AssistantMessage) and msg.parent_tool_use_id is None:
+            for b in msg.content:
+                if isinstance(b, ToolUseBlock) and b.name in SUBAGENT_TOOLS:
+                    first_launch = first_launch or time.monotonic()
+                    launches_by_response.setdefault(msg.message_id or msg.uuid, []).append(
+                        b.input.get("subagent_type"))
         elif isinstance(msg, ResultMessage):
             cost = msg.total_cost_usd
             if msg.is_error:
                 print(f"[coordinator] error result: {msg.result}", file=sys.stderr)
+    for names in launches_by_response.values():
+        print(f"[coordinator] launched {names} in one response")
     return {"elapsed": time.monotonic() - start,
             "since_first_launch": (time.monotonic() - first_launch) if first_launch else None,
-            "launch_sizes": parallel_turns, "cost": cost}
+            "launch_sizes": [len(v) for v in launches_by_response.values()], "cost": cost}
 
 
 def load_patches(work: Path) -> tuple[list[Patch], list[PatchFile]]:
