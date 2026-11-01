@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(~/Training/CCAF/**)",
+      "Edit(~/Training/CCAF/**)",
+      "Write(~/Training/CCAF/**)"
+    ],
+    "deny": [
+      "Edit(~/Training/CCAF/project1/app1.csv)",
+      "Write(~/Training/CCAF/project1/app1.csv)"
+    ]
+  }
+}
