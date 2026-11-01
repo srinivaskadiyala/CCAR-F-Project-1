@@ -29,3 +29,7 @@
 - Final output: `app1_updated_<YYYYMMDD_HHMMSS>.csv`, matching `^app1_updated_\d{8}_\d{6}\.csv$`.
 - Change log: `app1_changelog_<YYYYMMDD_HHMMSS>.txt`, same timestamp.
 - Run artifacts go in `work/<YYYYMMDD_HHMMSS>/` (patches, `merged.csv`, `manifest.json`). `work/` is not committed.
+
+## Documentation
+
+- Treat `INSTRUCTIONS.md` as code: update it in the same change whenever setup steps, commands, test counts, costs, file layout or behaviour it describes change.

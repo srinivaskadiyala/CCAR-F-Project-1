@@ -112,8 +112,9 @@ want it loaded automatically, add `source ~/Training/.env.sh` to `~/.zshrc`.
 
 ## 5. Run the pipeline
 
-Each run costs real money (roughly $0.35 to $0.50 on the 6-row sample) and takes
-about 90 to 100 seconds.
+Each run costs real money and takes a few minutes. The old 6-row sample cost roughly
+$0.35 to $0.50 and took 90 to 100 seconds; the current 25-line `app1.csv` takes longer
+(the end-to-end test on it took about 3 minutes), and cost grows with file size.
 
 ```bash
 cd ~/Training/CCAF/project1
@@ -150,7 +151,7 @@ python src/main.py --sequential
 ```
 
 The log line `stage_seconds` shows how long Agents 1 and 2 took (about 9 s in parallel
-vs about 39 s sequentially on the sample).
+vs about 39 s sequentially, measured on the old 6-row sample).
 
 **If it fails:** the program prints which checks failed. It tries to fix the problem
 once, and if it still fails it writes no final files and exits with an error.
@@ -168,7 +169,7 @@ source ~/Training/.venv/bin/activate
 pytest
 ```
 
-This runs the 41 unit tests in about a second. They check date parsing, the sum and
+This runs the 43 unit tests in about a second. They check date parsing, the sum and
 average maths, the write-protection hooks, the validation logic and file naming. No
 API key is needed and nothing is billed. The two end-to-end tests are skipped by
 default (the output says `2 deselected`).
@@ -183,17 +184,18 @@ pytest -k "date"                 # only tests with "date" in the name
 
 ### With the real model (end to end; costs money)
 
-This runs the whole pipeline and checks the result against the expected values
-(five dates, Gadgets Total 75, Doohickeys Avg 50, TOTAL-row Feb 112), that Agents 1
-and 2 were launched together, and that `app1.csv` is unchanged. It cleans up the
-files it creates.
+This runs the whole pipeline on `app1.csv` and compares **every cell** of the output
+with `tests/fixtures/expected_app1.csv` (the correct answer: 23 normalised dates,
+corrected Totals and Avgs, corrected TOTAL row). It also checks that Agents 1 and 2
+were launched together and that `app1.csv` is unchanged. It cleans up the files it
+creates.
 
 ```bash
 source ~/Training/.env.sh
 pytest -m slow tests/test_e2e.py
 ```
 
-Takes roughly 2 to 3 minutes and about $0.40 to $0.50. If `ANTHROPIC_API_KEY` is not
+Takes roughly 3 minutes and costs real money (about $0.50 or more). If `ANTHROPIC_API_KEY` is not
 set, these tests skip themselves instead of failing.
 
 LLM output can vary from run to run. If an end-to-end test fails once, run it again
@@ -257,7 +259,7 @@ Tips:
 project1/
 ├── CLAUDE.md               rules and requirements (R1 to R8) for Claude Code
 ├── INSTRUCTIONS.md         this file
-├── app1.csv                the input data (protected, never modified)
+├── app1.csv                the input data: 25 lines with seeded errors (protected)
 ├── pytest.ini              test settings (slow tests are off by default)
 ├── .claude/
 │   ├── settings.json       permissions (app1.csv is write-protected)
@@ -271,6 +273,7 @@ project1/
 │   ├── schemas.py          data formats for patches, merge report, manifest
 │   └── validate.py         checks run on Agent 3's output before the final write
 ├── tests/                  unit tests plus the end-to-end test
+│   └── fixtures/           sample6.csv (old 6-row sample), expected_app1.csv (correct answer)
 └── work/<timestamp>/       created per run (not in git)
 ```
 
@@ -306,7 +309,16 @@ Shift+Tab to switch to plan mode before larger changes.
 ## 11. Safety reminders
 
 - Never commit the API key. It belongs only in `~/Training/.env.sh`.
-- `app1.csv` must stay unchanged. To test with different data, copy it elsewhere or
-  add a fixture under `tests/`.
+- `app1.csv` must stay unchanged by the pipeline and by Claude Code (a deny rule in
+  `.claude/settings.json` blocks edits). To test with different data, add a fixture under
+  `tests/fixtures/`. If you deliberately change `app1.csv` yourself, also update
+  `tests/fixtures/expected_app1.csv` (the correct result) and the counts asserted in
+  `tests/test_validate.py`, then run `pytest` and `pytest -m slow tests/test_e2e.py`.
+
+## 12. Keeping this file up to date
+
+Treat `INSTRUCTIONS.md` like code. In the same PR as any change that affects setup,
+commands, test counts, costs, file layout or behaviour described here, update this file.
+A PR that changes those without updating it is incomplete.
 - Every pipeline run and every `-m slow` test uses paid API calls. Run `pytest` (no flags)
   while developing and the paid runs only when you need them.
