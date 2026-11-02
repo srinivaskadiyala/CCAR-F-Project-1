@@ -3,7 +3,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from schemas import MergeReport, Patch  # noqa: E402
+from schemas import MergeReport, Patch, PatchError  # noqa: E402
 from validate import (check_dates, check_shape, check_totals, find_conflicts,  # noqa: E402
                       read_csv, validate_merge)
 
@@ -156,3 +156,51 @@ def test_validate_merge_reports_untouched_changes() -> None:
     merged[6][2], merged[6][3] = "80", "110"  # ...and the TOTAL row follows, so only check_untouched objects
     errs = validate_merge(FIXED, merged, [], MergeReport())
     assert any("Jan" in e for e in errs) and any("Feb" in e for e in errs)
+
+
+# ---- #5: robust conflict / unverifiable lookups ---------------------------------------
+
+def test_conflict_row_given_as_string_is_honoured() -> None:
+    p = Patch(row=1, column="Date", old="03/04/2026", new="05-MAR-2026", reason="x")
+    rep = MergeReport(conflicts=[{"row": "1", "column": "Date"}])
+    assert validate_merge(FIXED, FIXED, [p], rep) == []
+    assert check_untouched(FIXED, FIXED, [p], rep) == []
+
+
+def _bad_date_merge() -> list[list[str]]:
+    merged = [r[:] for r in FIXED]
+    merged[1][0] = "TBD"
+    return merged
+
+
+def test_unverifiable_without_matching_patch_error_does_not_skip_date_check() -> None:
+    """An agent can't excuse a bad date just by listing it as unverifiable."""
+    original = [r[:] for r in FIXED]
+    original[1][0] = "TBD"
+    rep = MergeReport(unverifiable=[{"row": 1, "column": "Date"}])
+    errs = validate_merge(original, _bad_date_merge(), [], rep, patch_errors=[])
+    assert any("row 1 Date" in e for e in errs)
+
+
+def test_unverifiable_backed_by_patch_error_skips_date_check_even_with_string_row() -> None:
+    original = [r[:] for r in FIXED]
+    original[1][0] = "TBD"
+    err = PatchError(row=1, column="Date", errorCategory="validation", message="not a date")
+    rep = MergeReport(unverifiable=[{"row": "1", "column": "Date"}])
+    assert validate_merge(original, _bad_date_merge(), [], rep, patch_errors=[err]) == []
+
+
+# ---- merge_report.applied is informational: tolerate Agent 3's formatting ---------------
+
+def test_merge_report_applied_tolerates_extra_keys_and_missing_reason() -> None:
+    """Observed live: Agent 3 wrote applied entries as {source,row,column,old,new} (no reason)."""
+    rep = MergeReport.model_validate_json(
+        '{"applied": [{"source": "agent1", "row": 1, "column": "Date", "old": "a", "new": "b"}]}')
+    assert rep.applied[0].row == 1 and rep.applied[0].reason == ""
+
+
+def test_merge_report_applied_still_needs_the_cell_identity() -> None:
+    import pytest
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        MergeReport.model_validate_json('{"applied": [{"source": "agent1"}]}')

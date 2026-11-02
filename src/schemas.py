@@ -7,12 +7,18 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 Status = Literal["pending", "skipped", "done", "failed"]
 
 
-class Patch(BaseModel):
+class _Strict(BaseModel):
+    """Reject unknown keys: a misspelt key (e.g. 'changes' for 'patches') must fail loudly,
+    not validate as an empty patch file."""
+    model_config = ConfigDict(extra="forbid")
+
+
+class Patch(_Strict):
     row: int  # 1-based data row (header excluded)
     column: str
     old: str
@@ -21,28 +27,38 @@ class Patch(BaseModel):
     ambiguous: bool = False
 
 
-class Flag(BaseModel):
+class Flag(_Strict):
     row: int
     note: str
 
 
-class PatchError(BaseModel):
+class PatchError(_Strict):
     row: int | None = None
     column: str | None = None
     errorCategory: Literal["validation", "transient", "permission"]
     message: str
 
 
-class PatchFile(BaseModel):
+class PatchFile(_Strict):
     agent: Literal["agent1", "agent2"]
     run_timestamp: str
-    patches: list[Patch] = Field(default_factory=list)
+    patches: list[Patch]          # required: write [] when nothing changes
     flags: list[Flag] = Field(default_factory=list)
     errors: list[PatchError] = Field(default_factory=list)
 
 
+class AppliedPatch(BaseModel):
+    """An entry in merge_report.applied. Informational only (checks use the patch files), so
+    unknown keys such as 'source' are ignored and 'reason' is optional."""
+    row: int
+    column: str
+    old: str
+    new: str
+    reason: str = ""
+
+
 class MergeReport(BaseModel):
-    applied: list[Patch] = Field(default_factory=list)
+    applied: list[AppliedPatch] = Field(default_factory=list)
     conflicts: list[dict[str, Any]] = Field(default_factory=list)
     ambiguous_dates: list[dict[str, Any]] = Field(default_factory=list)
     unverifiable: list[dict[str, Any]] = Field(default_factory=list)

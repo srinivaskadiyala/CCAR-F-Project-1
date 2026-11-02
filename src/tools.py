@@ -6,6 +6,7 @@ to agents through the in-process MCP server ``csvtools``.
 from __future__ import annotations
 
 import json
+import math
 import re
 from datetime import date
 from typing import Any
@@ -96,10 +97,15 @@ def calc_stats(values: list[Any]) -> dict[str, Any]:
     for v in values:
         if v is None or (isinstance(v, str) and not v.strip()):
             continue
+        if isinstance(v, bool):
+            return _error("validation", f"Non-numeric value: {v!r}")
         try:
-            nums.append(float(v))
+            n = float(v)
         except (TypeError, ValueError):
             return _error("validation", f"Non-numeric value: {v!r}")
+        if not math.isfinite(n):
+            return _error("validation", f"Value must be a finite number: {v!r}")
+        nums.append(n)
     if not nums:
         return {"sum": 0.0, "average": None, "count": 0}
     total = sum(nums)

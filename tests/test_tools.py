@@ -63,3 +63,16 @@ def test_calc_stats_all_blank_is_valid_empty() -> None:
 def test_calc_stats_non_numeric_is_error() -> None:
     r = calc_stats([1, "abc"])
     assert r["isError"] is True and r["errorCategory"] == "validation"
+
+
+@pytest.mark.parametrize("bad", ["nan", "NaN", "inf", "-inf", "Infinity", float("nan"), float("inf")])
+def test_calc_stats_rejects_non_finite(bad) -> None:
+    """#10: nan/inf must be a validation error, not silently poison the sum."""
+    r = calc_stats([1, bad])
+    assert r["isError"] is True and r["errorCategory"] == "validation"
+
+
+@pytest.mark.parametrize("bad", [True, False])
+def test_calc_stats_rejects_booleans(bad) -> None:
+    r = calc_stats([1, bad])
+    assert r["isError"] is True and r["errorCategory"] == "validation"

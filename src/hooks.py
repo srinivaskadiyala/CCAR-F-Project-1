@@ -26,8 +26,8 @@ def _work_parts(path: Path, root: Path) -> tuple[str, str] | None:
     return (rel.parts[0], rel.parts[1]) if len(rel.parts) == 2 else None
 
 
-def decide_write(file_path: str, root: Path) -> tuple[bool, str]:
-    """Return (allowed, reason) for a Write/Edit to file_path."""
+def decide_write(file_path: str, root: Path, run_ts: str) -> tuple[bool, str]:
+    """Return (allowed, reason) for a Write/Edit to file_path during run `run_ts`."""
     path = Path(file_path).expanduser()
     if not path.is_absolute():
         path = root / path
@@ -39,6 +39,8 @@ def decide_write(file_path: str, root: Path) -> tuple[bool, str]:
 
     work = _work_parts(path, root)
     if work:
+        if work[0] != run_ts:
+            return False, f"work/{work[0]} belongs to another run; this run is {run_ts}."
         if work[1] == "manifest.json":
             return False, "manifest.json is maintained by the pipeline, not by agents."
         return True, "inside the run's work folder"
@@ -46,6 +48,8 @@ def decide_write(file_path: str, root: Path) -> tuple[bool, str]:
     m = FINAL_RE.match(path.name)
     if path.parent == root and m:
         ts = m.group(1) or m.group(2)
+        if ts != run_ts:
+            return False, f"{path.name} is not for the current run ({run_ts})."
         manifest = root / "work" / ts / "manifest.json"
         if not manifest.exists():
             return False, f"no manifest for run {ts}; cannot write final files."
@@ -94,12 +98,12 @@ def record_write(file_path: str, root: Path) -> str | None:
     return note
 
 
-def make_hooks(root: Path):
-    """Build (pre, post) async hook callbacks bound to a project root."""
+def make_hooks(root: Path, run_ts: str):
+    """Build (pre, post) async hook callbacks bound to a project root and the current run."""
 
     async def pre(input_data: dict[str, Any], tool_use_id: str | None, context: Any) -> dict[str, Any]:
         file_path = input_data.get("tool_input", {}).get("file_path", "")
-        allowed, reason = decide_write(file_path, root)
+        allowed, reason = decide_write(file_path, root, run_ts)
         if allowed:
             return {}
         return {"hookSpecificOutput": {

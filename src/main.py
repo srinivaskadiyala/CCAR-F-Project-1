@@ -38,7 +38,7 @@ def make_timestamp() -> str:
 
 
 def build_options(ts: str) -> ClaudeAgentOptions:
-    pre, post = make_hooks(ROOT)
+    pre, post = make_hooks(ROOT, ts)
     return ClaudeAgentOptions(
         cwd=str(ROOT),
         system_prompt=COORDINATOR_PROMPT,
@@ -120,8 +120,9 @@ def verify(ts: str) -> tuple[list[str], MergeReport | None]:
         return ["Agent 3 did not produce merged.csv and merge_report.json"], None
     try:
         report = MergeReport.model_validate_json(report_path.read_text())
-        patches, _ = load_patches(work)
-        errs = validate_merge(read_csv(SOURCE), read_csv(merged_path), patches, report)
+        patches, files = load_patches(work)
+        errs = validate_merge(read_csv(SOURCE), read_csv(merged_path), patches, report,
+                              patch_errors=[e for f in files for e in f.errors])
     except (ValidationError, ValueError, OSError, csv.Error) as exc:
         # Malformed agent output is a verification failure (retryable), not a crash.
         return [f"Could not parse agent output: {exc}"], None

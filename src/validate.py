@@ -5,7 +5,7 @@ import csv
 import re
 from pathlib import Path
 
-from schemas import MergeReport, Patch
+from schemas import MergeReport, Patch, PatchError
 from tools import calc_stats
 
 DATE_RE = re.compile(r"^\d{2}-[A-Z]{3}-\d{4}$")
@@ -51,6 +51,18 @@ def check_dates(merged: list[list[str]], skip: set[tuple[int, str]] = frozenset(
             if not DATE_RE.match(v):
                 errs.append(f"row {ri} Date {v!r} is not DD-MON-YYYY")
     return errs
+
+
+def _key(entry: dict) -> tuple[int, str] | None:
+    """(row, column) of a free-form report entry; the row may arrive as an int or a numeric string."""
+    try:
+        return int(entry.get("row")), entry.get("column")
+    except (TypeError, ValueError):
+        return None
+
+
+def _keys(entries: list[dict]) -> set[tuple[int, str]]:
+    return {k for e in entries if (k := _key(e)) is not None}
 
 
 def _cell(row: list[str], i: int) -> str:
@@ -103,7 +115,7 @@ def check_patches_accounted(
 ) -> list[str]:
     """Each patch must be in the merged file or listed as a conflict."""
     header = original[0]
-    conflicted = {(c.get("row"), c.get("column")) for c in report.conflicts}
+    conflicted = _keys(report.conflicts)
     errs: list[str] = []
     for p in patches:
         if (p.row, p.column) in conflicted:
@@ -131,7 +143,7 @@ def check_untouched(
     """
     header = original[0]
     patched = {(p.row, p.column): p.new.strip() for p in patches}
-    conflicted = {(c.get("row"), c.get("column")) for c in report.conflicts}
+    conflicted = _keys(report.conflicts)
     errs: list[str] = []
     for ri, (orig_row, new_row) in enumerate(zip(original, merged)):
         if ri == 0:
@@ -163,8 +175,12 @@ def find_conflicts(patch_sets: list[list[Patch]]) -> set[tuple[int, str]]:
 def validate_merge(
     original: list[list[str]], merged: list[list[str]],
     patches: list[Patch], report: MergeReport,
+    patch_errors: list[PatchError] | None = None,
 ) -> list[str]:
-    skip = {(u.get("row"), u.get("column")) for u in report.unverifiable}
+    """Run every check. A cell may only be excused from the date check if it is both listed
+    as unverifiable by Agent 3 and backed by an error an agent 1/2 actually reported."""
+    reported = {(e.row, e.column) for e in patch_errors or []}
+    skip = _keys(report.unverifiable) & reported
     errs = check_shape(original, merged)
     if errs:
         return errs
