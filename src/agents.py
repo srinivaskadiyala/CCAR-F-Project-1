@@ -50,7 +50,8 @@ Goal: every calculated cell equals the value computed from raw data.
 Quality criteria:
 - Use the calc_stats tool for every sum and average; never do arithmetic yourself.
 - Row Total/Avg: use the raw month cells of that row only. Averages ignore blank cells.
-  The TOTAL row sums each column over the data rows only.
+  The TOTAL row sums each column over the data rows only; if its Avg cell is filled it
+  must equal the mean of the data rows' Avg cells (a blank one stays blank).
 - Round to 2 decimals; write whole numbers without a decimal point (75, not 75.0).
 - Only patch cells whose current value is wrong. A blank calculated cell is left alone.
 - Non-numeric raw values go in "errors"; leave dependent cells unchanged.

@@ -172,7 +172,7 @@ source ~/Training/.venv/bin/activate
 pytest
 ```
 
-This runs the 53 unit tests in about a second. They check date parsing, the sum and
+This runs the 63 unit tests in about a second. They check date parsing, the sum and
 average maths, the write-protection hooks, the validation logic and file naming. No
 API key is needed and nothing is billed. The two end-to-end tests are skipped by
 default (the output says `2 deselected`).

@@ -17,6 +17,7 @@
 - Calculated cells are recognised by the headers `Total` and `Avg` and by the row label `TOTAL`.
 - Averages ignore blank cells (a row with two filled months averages over two).
 - Results are rounded to 2 decimals.
+- In the `TOTAL` row, `Total` and the raw columns are sums of the data rows. A filled `Avg` there is the mean of the data rows' `Avg` cells; a blank one is left blank.
 
 ## Date rules
 

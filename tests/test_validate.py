@@ -91,3 +91,68 @@ def test_app1_is_25_lines_with_seeded_errors() -> None:
     assert len(check_dates(rows)) == 23         # every date needs normalising
     # 3 wrong row Totals, 3 wrong row Avgs, 2 wrong TOTAL-row cells
     assert len(check_totals(rows)) == 8
+
+
+# ---- gaps found in the project review -------------------------------------------------
+
+from validate import check_untouched  # noqa: E402
+
+
+def test_total_row_avg_is_checked() -> None:
+    """#1: a wrong, non-blank Avg in the TOTAL row must be flagged."""
+    rows = [r[:] for r in FIXED]
+    rows[6][6] = "99"                       # data-row Avgs average 22.0
+    errs = check_totals(rows)
+    assert any("row 6 Avg" in e for e in errs)
+
+
+def test_total_row_avg_correct_or_blank_is_clean() -> None:
+    rows = [r[:] for r in FIXED]
+    assert check_totals(rows) == []         # blank is fine
+    rows[6][6] = "22"                       # mean(20,25,10,50,5) = 22
+    assert check_totals(rows) == []
+
+
+def test_blank_lines_do_not_crash_checks() -> None:
+    """#2: csv.reader yields [] for blank lines; checks must skip them."""
+    rows = FIXED[:3] + [[]] + FIXED[3:]
+    assert check_totals(rows) == []
+    assert check_dates(rows) == []
+
+
+def test_short_ragged_rows_do_not_crash_checks() -> None:
+    rows = [r[:] for r in FIXED]
+    rows[2] = rows[2][:4]                   # row with missing trailing cells
+    check_totals(rows)                      # must not raise
+    check_dates(rows)
+
+
+def test_untouched_cells_match_original() -> None:
+    assert check_untouched(FIXED, FIXED, [], MergeReport()) == []
+
+
+def test_unpatched_raw_change_is_flagged() -> None:
+    """#4: Agent 3 altering a raw cell without a patch must be caught."""
+    merged = [r[:] for r in FIXED]
+    merged[1][2] = "11"                     # Widgets Jan 10 -> 11, no patch
+    errs = check_untouched(FIXED, merged, [], MergeReport())
+    assert len(errs) == 1 and "row 1 Jan" in errs[0]
+
+
+def test_patched_change_is_allowed_and_conflict_must_stay_original() -> None:
+    original = [r[:] for r in FIXED]
+    original[2][5] = "80"
+    merged = [r[:] for r in FIXED]          # Gadgets Total corrected to 75
+    p = Patch(row=2, column="Total", old="80", new="75", reason="sum")
+    assert check_untouched(original, merged, [p], MergeReport()) == []
+    rep = MergeReport(conflicts=[{"row": 2, "column": "Total"}])
+    errs = check_untouched(original, merged, [p], rep)
+    assert errs and "conflict" in errs[0]
+
+
+def test_validate_merge_reports_untouched_changes() -> None:
+    merged = [r[:] for r in FIXED]
+    merged[1][2], merged[1][3] = "12", "18"   # Jan +2, Feb -2: row Total/Avg still consistent
+    merged[6][2], merged[6][3] = "80", "110"  # ...and the TOTAL row follows, so only check_untouched objects
+    errs = validate_merge(FIXED, merged, [], MergeReport())
+    assert any("Jan" in e for e in errs) and any("Feb" in e for e in errs)
