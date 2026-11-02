@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import csv
 import json
 import sys
 import time
@@ -121,7 +122,7 @@ def verify(ts: str) -> tuple[list[str], MergeReport | None]:
         report = MergeReport.model_validate_json(report_path.read_text())
         patches, _ = load_patches(work)
         errs = validate_merge(read_csv(SOURCE), read_csv(merged_path), patches, report)
-    except (ValidationError, ValueError, OSError) as exc:
+    except (ValidationError, ValueError, OSError, csv.Error) as exc:
         # Malformed agent output is a verification failure (retryable), not a crash.
         return [f"Could not parse agent output: {exc}"], None
     return errs, report

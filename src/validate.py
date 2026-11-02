@@ -45,7 +45,7 @@ def check_dates(merged: list[list[str]], skip: set[tuple[int, str]] = frozenset(
         if name != "Date":
             continue
         for ri, row in enumerate(merged[1:], start=1):
-            v = row[ci].strip()
+            v = _cell(row, ci).strip()
             if not v or v == "TOTAL" or (ri, name) in skip:
                 continue
             if not DATE_RE.match(v):
@@ -53,9 +53,9 @@ def check_dates(merged: list[list[str]], skip: set[tuple[int, str]] = frozenset(
     return errs
 
 
-def _num(v: str) -> float | None:
-    v = v.strip()
-    return float(v) if v else None
+def _cell(row: list[str], i: int) -> str:
+    """Cell text, treating cells missing from a short or blank row as empty."""
+    return row[i] if i < len(row) else ""
 
 
 def check_totals(merged: list[list[str]]) -> list[str]:
@@ -66,11 +66,12 @@ def check_totals(merged: list[list[str]]) -> list[str]:
     raw_cols = [i for i in range(len(header)) if i not in calc_cols | label_cols]
     errs: list[str] = []
 
-    data = [(ri, r) for ri, r in enumerate(merged[1:], start=1) if r[0].strip() != "TOTAL"]
-    total_rows = [(ri, r) for ri, r in enumerate(merged[1:], start=1) if r[0].strip() == "TOTAL"]
+    numbered = [(ri, r) for ri, r in enumerate(merged[1:], start=1) if r]   # skip blank lines
+    data = [(ri, r) for ri, r in numbered if _cell(r, 0).strip() != "TOTAL"]
+    total_rows = [(ri, r) for ri, r in numbered if _cell(r, 0).strip() == "TOTAL"]
 
     def compare(ri: int, col: int, expected: float | None) -> None:
-        cell = merged[ri][col].strip()
+        cell = _cell(merged[ri], col).strip()
         if not cell or expected is None:
             return
         try:
@@ -80,7 +81,7 @@ def check_totals(merged: list[list[str]]) -> list[str]:
             errs.append(f"row {ri} {header[col]}: {cell!r} is not numeric")
 
     for ri, row in data:
-        stats = calc_stats([row[i] for i in raw_cols])
+        stats = calc_stats([_cell(row, i) for i in raw_cols])
         if stats.get("isError"):
             errs.append(f"row {ri}: {stats['message']}")
             continue
@@ -88,10 +89,11 @@ def check_totals(merged: list[list[str]]) -> list[str]:
             compare(ri, ci, stats["sum"] if header[ci] == "Total" else stats["average"])
 
     for ri, row in total_rows:
-        for ci in raw_cols + [i for i in calc_cols if header[i] == "Total"]:
-            stats = calc_stats([r[ci] for _, r in data])
+        # Total and raw columns sum the data rows; a filled Avg is the mean of the data rows' Avgs.
+        for ci in raw_cols + sorted(calc_cols):
+            stats = calc_stats([_cell(r, ci) for _, r in data])
             if not stats.get("isError"):
-                compare(ri, ci, stats["sum"])
+                compare(ri, ci, stats["average"] if header[ci] == "Avg" else stats["sum"])
     return errs
 
 
@@ -112,9 +114,37 @@ def check_patches_accounted(
         if not 1 <= p.row < len(merged):
             errs.append(f"patch row {p.row} {p.column}: row out of range (1-{len(merged) - 1})")
             continue
-        got = merged[p.row][header.index(p.column)].strip()
+        got = _cell(merged[p.row], header.index(p.column)).strip()
         if got != p.new.strip():
             errs.append(f"patch row {p.row} {p.column}: expected {p.new!r}, merged has {got!r}")
+    return errs
+
+
+def check_untouched(
+    original: list[list[str]], merged: list[list[str]],
+    patches: list[Patch], report: MergeReport,
+) -> list[str]:
+    """Every cell that differs from the original must be covered by a patch.
+
+    Enforces 'raw data cells are never changed' independently of the totals check.
+    A cell reported as a conflict must keep its original value (neither patch applied).
+    """
+    header = original[0]
+    patched = {(p.row, p.column): p.new.strip() for p in patches}
+    conflicted = {(c.get("row"), c.get("column")) for c in report.conflicts}
+    errs: list[str] = []
+    for ri, (orig_row, new_row) in enumerate(zip(original, merged)):
+        if ri == 0:
+            continue
+        for ci in range(max(len(orig_row), len(new_row))):
+            old, new = _cell(orig_row, ci), _cell(new_row, ci)
+            if old == new:
+                continue
+            key = (ri, header[ci] if ci < len(header) else f"col{ci}")
+            if key in conflicted:
+                errs.append(f"row {ri} {key[1]}: reported as a conflict but was changed to {new!r}")
+            elif patched.get(key) != new.strip():
+                errs.append(f"row {ri} {key[1]}: changed from {old!r} to {new!r} without a matching patch")
     return errs
 
 
@@ -139,4 +169,6 @@ def validate_merge(
     if errs:
         return errs
     return (check_dates(merged, skip) + check_totals(merged)
-            + check_patches_accounted(original, merged, patches, report))
+            + check_patches_accounted(original, merged, patches, report)
+            + check_untouched(original, merged, patches, report))
+
