@@ -15,6 +15,8 @@ Patch file JSON schema (write valid JSON only, no commentary):
   "errors": [{"row": <int>, "column": "<header>",
               "errorCategory": "validation"|"transient"|"permission", "message": "<text>"}]
 }
+Use exactly these key names: "patches" (not "changes"), "flags", "errors"; "agent" must be
+exactly "agent1" or "agent2" and no other keys are allowed.
 Only list cells that change. Cells you could not verify go in "errors" and are left unchanged.
 If nothing needs changing, write empty lists."""
 
