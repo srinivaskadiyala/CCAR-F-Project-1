@@ -109,6 +109,9 @@ def check_patches_accounted(
         if p.column not in header:
             errs.append(f"patch column {p.column!r} not in header")
             continue
+        if not 1 <= p.row < len(merged):
+            errs.append(f"patch row {p.row} {p.column}: row out of range (1-{len(merged) - 1})")
+            continue
         got = merged[p.row][header.index(p.column)].strip()
         if got != p.new.strip():
             errs.append(f"patch row {p.row} {p.column}: expected {p.new!r}, merged has {got!r}")

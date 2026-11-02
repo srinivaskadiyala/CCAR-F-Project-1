@@ -8,6 +8,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from pydantic import ValidationError
 from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, HookMatcher,
                               ResultMessage, ToolResultBlock, ToolUseBlock, UserMessage, query)
 
@@ -116,10 +117,25 @@ def verify(ts: str) -> tuple[list[str], MergeReport | None]:
     merged_path, report_path = work / "merged.csv", work / "merge_report.json"
     if not merged_path.exists() or not report_path.exists():
         return ["Agent 3 did not produce merged.csv and merge_report.json"], None
-    report = MergeReport.model_validate_json(report_path.read_text())
-    patches, _ = load_patches(work)
-    errs = validate_merge(read_csv(SOURCE), read_csv(merged_path), patches, report)
+    try:
+        report = MergeReport.model_validate_json(report_path.read_text())
+        patches, _ = load_patches(work)
+        errs = validate_merge(read_csv(SOURCE), read_csv(merged_path), patches, report)
+    except (ValidationError, ValueError, OSError) as exc:
+        # Malformed agent output is a verification failure (retryable), not a crash.
+        return [f"Could not parse agent output: {exc}"], None
     return errs, report
+
+
+def merge_timing(first: dict, second: dict) -> dict:
+    """Combine the timing/cost dicts of two coordinator passes (initial run + retry)."""
+    def total(key: str):
+        vals = [d[key] for d in (first, second) if d.get(key) is not None]
+        return sum(vals) if vals else None
+    return {"elapsed": total("elapsed"), "stage_seconds": total("stage_seconds"),
+            "since_first_launch": total("since_first_launch"),
+            "launch_sizes": first["launch_sizes"] + second["launch_sizes"],
+            "cost": total("cost")}
 
 
 def write_changelog(ts: str, report: MergeReport, files: list[PatchFile], timing: dict) -> Path:
@@ -158,14 +174,14 @@ async def main(sequential: bool = False) -> int:
         retry = (task_prompt(ts, sequential) + "\nThe merged file failed verification with these errors. "
                  "Re-invoke the responsible agent(s) once, passing these errors, then re-run "
                  "agent3_merge:\n" + "\n".join(f"- {e}" for e in errs))
-        timing = await run_coordinator(retry, options)
+        timing = merge_timing(timing, await run_coordinator(retry, options))
         errs, report = verify(ts)
 
     manifest = load_manifest(manifest_path)
     for name, state in manifest.agents.items():
         if state.status == "pending" and manifest.agents["agent3"].status == "done":
             state.status = "skipped"
-    manifest.parallel_seconds = timing["since_first_launch"]
+    manifest.parallel_seconds = timing["stage_seconds"]
     if errs or report is None:
         save_manifest(manifest_path, manifest)
         print("[verify] still failing; no final files written:", *errs, sep="\n  - ", file=sys.stderr)
