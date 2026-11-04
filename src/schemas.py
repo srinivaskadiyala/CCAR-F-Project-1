@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -72,15 +71,13 @@ class AgentState(BaseModel):
 class Manifest(BaseModel):
     run_timestamp: str
     source: str = "app1.csv"
-    created: str
     agents: dict[str, AgentState] = Field(default_factory=lambda: {
         "agent1": AgentState(), "agent2": AgentState(), "agent3": AgentState()})
     parallel_seconds: float | None = None
-    final_files: list[str] = Field(default_factory=list)
 
 
 def new_manifest(run_timestamp: str) -> Manifest:
-    return Manifest(run_timestamp=run_timestamp, created=datetime.now().isoformat(timespec="seconds"))
+    return Manifest(run_timestamp=run_timestamp)
 
 
 def load_manifest(path: Path) -> Manifest:

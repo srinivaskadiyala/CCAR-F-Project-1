@@ -71,7 +71,6 @@ def task_prompt(ts: str, sequential: bool = False) -> str:
 async def run_coordinator(prompt: str, options: ClaudeAgentOptions) -> dict:
     """Stream one coordinator run; log parallel launches and elapsed time."""
     start = time.monotonic()
-    first_launch = None
     stage_ids: set[str] = set()   # tool_use ids of agent1/agent2 launches
     stage_done: float | None = None
     # The SDK may emit one AssistantMessage per content block, so group
@@ -83,7 +82,6 @@ async def run_coordinator(prompt: str, options: ClaudeAgentOptions) -> dict:
         if isinstance(msg, AssistantMessage) and msg.parent_tool_use_id is None:
             for b in msg.content:
                 if isinstance(b, ToolUseBlock) and b.name in SUBAGENT_TOOLS:
-                    first_launch = first_launch or time.monotonic()
                     if b.input.get("subagent_type") in STAGE_AGENTS:
                         stage_start = stage_start or time.monotonic()
                         stage_ids.add(b.id)
@@ -103,8 +101,7 @@ async def run_coordinator(prompt: str, options: ClaudeAgentOptions) -> dict:
         print(f"[coordinator] launched {names} in one response")
     return {"elapsed": time.monotonic() - start,
             "stage_seconds": (stage_done - stage_start) if stage_start and stage_done else None,
-            "since_first_launch": (time.monotonic() - first_launch) if first_launch else None,
-            "launch_sizes": [len(v) for v in launches_by_response.values()], "cost": cost}
+            "cost": cost}
 
 
 def load_patches(work: Path) -> tuple[list[Patch], list[PatchFile]]:
@@ -134,10 +131,7 @@ def merge_timing(first: dict, second: dict) -> dict:
     def total(key: str):
         vals = [d[key] for d in (first, second) if d.get(key) is not None]
         return sum(vals) if vals else None
-    return {"elapsed": total("elapsed"), "stage_seconds": total("stage_seconds"),
-            "since_first_launch": total("since_first_launch"),
-            "launch_sizes": first["launch_sizes"] + second["launch_sizes"],
-            "cost": total("cost")}
+    return {"elapsed": total("elapsed"), "stage_seconds": total("stage_seconds"), "cost": total("cost")}
 
 
 def write_changelog(ts: str, report: MergeReport, files: list[PatchFile], timing: dict) -> Path:
@@ -194,7 +188,6 @@ async def main(sequential: bool = False) -> int:
     final = ROOT / f"app1_updated_{ts}.csv"
     write_csv(final, rows)
     log = write_changelog(ts, report, files, timing)
-    manifest.final_files = [final.name, log.name]
     save_manifest(manifest_path, manifest)
     print(json.dumps({"final": final.name, "changelog": log.name, **timing}, indent=2))
     return 0

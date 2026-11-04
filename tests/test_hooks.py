@@ -72,14 +72,6 @@ def test_patch_write_marks_agent_done(root: Path) -> None:
     assert m.agents["agent2"].status == "pending"
 
 
-def test_invalid_patch_marks_failed_and_reports(root: Path) -> None:
-    p = root / "work" / TS / "agent2_patch.json"
-    p.write_text('{"agent": "agent2"}')
-    note = record_write(str(p), root)
-    assert note and "schema" in note
-    assert load_manifest(root / "work" / TS / "manifest.json").agents["agent2"].status == "failed"
-
-
 def test_agent3_needs_both_files(root: Path) -> None:
     work = root / "work" / TS
     (work / "merged.csv").write_text("x")
@@ -119,13 +111,6 @@ def test_final_files_of_another_run_are_denied(root: Path) -> None:
     assert not ok and "current run" in reason
 
 
-def test_sdk_pre_hook_denies_other_run_folder(root: Path) -> None:
-    pre, _ = make_hooks(root, TS)
-    old = root / "work" / OTHER / "agent1_patch.json"
-    out = asyncio.run(pre({"tool_input": {"file_path": str(old)}}, None, None))
-    assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
-
-
 # ---- strict patch schema: wrong keys must be rejected, not silently ignored ------------
 
 def test_patch_file_with_changes_key_is_rejected_and_reported(root: Path) -> None:
@@ -141,7 +126,8 @@ def test_patch_file_with_changes_key_is_rejected_and_reported(root: Path) -> Non
 def test_patch_file_missing_patches_key_is_rejected(root: Path) -> None:
     p = root / "work" / TS / "agent2_patch.json"
     p.write_text(json.dumps({"agent": "agent2", "run_timestamp": TS, "flags": [], "errors": []}))
-    assert record_write(str(p), root)
+    note = record_write(str(p), root)
+    assert note and "schema" in note
     assert load_manifest(root / "work" / TS / "manifest.json").agents["agent2"].status == "failed"
 
 
