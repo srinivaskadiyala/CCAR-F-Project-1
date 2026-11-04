@@ -32,6 +32,10 @@ SEQUENTIAL_NOTE = (
 )
 
 
+def work_dir(ts: str) -> Path:
+    return ROOT / "work" / ts
+
+
 def make_timestamp() -> str:
     """Local-time run timestamp, generated once per run (R8)."""
     return datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -55,7 +59,7 @@ def build_options(ts: str) -> ClaudeAgentOptions:
 
 
 def task_prompt(ts: str, sequential: bool = False) -> str:
-    work = ROOT / "work" / ts
+    work = work_dir(ts)
     return (
         f"Run timestamp: {ts}\n"
         f"Source CSV (read only): {SOURCE}\n"
@@ -111,7 +115,7 @@ def load_patches(work: Path) -> tuple[list[Patch], list[PatchFile]]:
 
 
 def verify(ts: str) -> tuple[list[str], MergeReport | None]:
-    work = ROOT / "work" / ts
+    work = work_dir(ts)
     merged_path, report_path = work / "merged.csv", work / "merge_report.json"
     if not merged_path.exists() or not report_path.exists():
         return ["Agent 3 did not produce merged.csv and merge_report.json"], None
@@ -135,27 +139,31 @@ def merge_timing(first: dict, second: dict) -> dict:
 
 
 def write_changelog(ts: str, report: MergeReport, files: list[PatchFile], timing: dict) -> Path:
-    lines = [f"Change log for run {ts}", f"Source: {SOURCE.name} (unchanged)", ""]
-    lines.append(f"Applied changes ({len(report.applied)}):")
-    for p in report.applied:
-        lines.append(f"  row {p.row} {p.column}: {p.old!r} -> {p.new!r} ({p.reason})")
-    lines += ["", f"Ambiguous dates read as MM/DD ({len(report.ambiguous_dates)}):"]
-    lines += [f"  {a}" for a in report.ambiguous_dates]
-    lines += ["", f"Conflicts, not applied ({len(report.conflicts)}):"]
-    lines += [f"  {c}" for c in report.conflicts]
-    lines += ["", f"Unverified cells ({len(report.unverifiable)}):"]
-    lines += [f"  {u}" for u in report.unverifiable]
-    lines += ["", "Flags:"] + [f"  [{f.agent}] row {fl.row}: {fl.note}"
-                                for f in files for fl in f.flags]
+    def section(title: str, items: list) -> list[str]:
+        return ["", title] + [f"  {item}" for item in items]
+
+    lines = [f"Change log for run {ts}", f"Source: {SOURCE.name} (unchanged)"]
+    lines += section(f"Applied changes ({len(report.applied)}):",
+                     [f"row {p.row} {p.column}: {p.old!r} -> {p.new!r} ({p.reason})" for p in report.applied])
+    lines += section(f"Ambiguous dates read as MM/DD ({len(report.ambiguous_dates)}):", report.ambiguous_dates)
+    lines += section(f"Conflicts, not applied ({len(report.conflicts)}):", report.conflicts)
+    lines += section(f"Unverified cells ({len(report.unverifiable)}):", report.unverifiable)
+    lines += section("Flags:", [f"[{f.agent}] row {fl.row}: {fl.note}" for f in files for fl in f.flags])
     lines += ["", f"Elapsed seconds (coordinator run): {timing['elapsed']:.1f}"]
     path = ROOT / f"app1_changelog_{ts}.txt"
     path.write_text("\n".join(lines) + "\n")
     return path
 
 
+def retry_prompt(ts: str, sequential: bool, errs: list[str]) -> str:
+    return (task_prompt(ts, sequential) + "\nThe merged file failed verification with these errors. "
+            "Re-invoke the responsible agent(s) once, passing these errors, then re-run "
+            "agent3_merge:\n" + "\n".join(f"- {e}" for e in errs))
+
+
 async def main(sequential: bool = False) -> int:
     ts = make_timestamp()
-    work = ROOT / "work" / ts
+    work = work_dir(ts)
     work.mkdir(parents=True)
     manifest_path = work / "manifest.json"
     save_manifest(manifest_path, new_manifest(ts))
@@ -167,19 +175,17 @@ async def main(sequential: bool = False) -> int:
         print(f"[verify] {len(errs)} problem(s); asking coordinator to fix once:")
         for e in errs:
             print("  -", e)
-        retry = (task_prompt(ts, sequential) + "\nThe merged file failed verification with these errors. "
-                 "Re-invoke the responsible agent(s) once, passing these errors, then re-run "
-                 "agent3_merge:\n" + "\n".join(f"- {e}" for e in errs))
-        timing = merge_timing(timing, await run_coordinator(retry, options))
+        timing = merge_timing(timing, await run_coordinator(retry_prompt(ts, sequential, errs), options))
         errs, report = verify(ts)
 
     manifest = load_manifest(manifest_path)
-    for name, state in manifest.agents.items():
-        if state.status == "pending" and manifest.agents["agent3"].status == "done":
-            state.status = "skipped"
+    if manifest.agents["agent3"].status == "done":        # agents that never wrote anything were not needed
+        for state in manifest.agents.values():
+            if state.status == "pending":
+                state.status = "skipped"
     manifest.parallel_seconds = timing["stage_seconds"]
+    save_manifest(manifest_path, manifest)
     if errs or report is None:
-        save_manifest(manifest_path, manifest)
         print("[verify] still failing; no final files written:", *errs, sep="\n  - ", file=sys.stderr)
         return 1
 
@@ -188,7 +194,6 @@ async def main(sequential: bool = False) -> int:
     final = ROOT / f"app1_updated_{ts}.csv"
     write_csv(final, rows)
     log = write_changelog(ts, report, files, timing)
-    save_manifest(manifest_path, manifest)
     print(json.dumps({"final": final.name, "changelog": log.name, **timing}, indent=2))
     return 0
 

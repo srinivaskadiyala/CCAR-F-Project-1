@@ -28,6 +28,10 @@ def _error(category: str, message: str, retryable: bool = False) -> dict[str, An
             "isRetryable": retryable, "message": message}
 
 
+def _parsed(date_text: str | None, rule: str, ambiguous: bool = False) -> dict[str, Any]:
+    return {"date": date_text, "ambiguous": ambiguous, "rule": rule}
+
+
 def _format(y: int, m: int, d: int) -> str | None:
     try:
         date(y, m, d)
@@ -49,7 +53,7 @@ def parse_date(text: str | None) -> dict[str, Any]:
     error when the text is not a recognisable date.
     """
     if text is None or not text.strip():
-        return {"date": None, "ambiguous": False, "rule": "empty"}
+        return _parsed(None, "empty")
     s = text.strip()
 
     # Already DD-MON-YYYY, or D-Mon-YY / D Mon YYYY
@@ -57,21 +61,21 @@ def parse_date(text: str | None) -> dict[str, Any]:
     if m and m.group(2).upper() in _MONTH_LOOKUP:
         out = _format(_year(m.group(3)), _MONTH_LOOKUP[m.group(2).upper()], int(m.group(1)))
         if out:
-            return {"date": out, "ambiguous": False, "rule": "d-Mon-y"}
+            return _parsed(out, "d-Mon-y")
 
     # March 7, 2026
     m = re.fullmatch(r"([A-Za-z]{3,9})\.?\s+(\d{1,2}),?\s+(\d{4})", s)
     if m and m.group(1).upper() in _MONTH_LOOKUP:
         out = _format(int(m.group(3)), _MONTH_LOOKUP[m.group(1).upper()], int(m.group(2)))
         if out:
-            return {"date": out, "ambiguous": False, "rule": "Month d, yyyy"}
+            return _parsed(out, "Month d, yyyy")
 
     # ISO 2026-03-06
     m = re.fullmatch(r"(\d{4})-(\d{1,2})-(\d{1,2})", s)
     if m:
         out = _format(int(m.group(1)), int(m.group(2)), int(m.group(3)))
         if out:
-            return {"date": out, "ambiguous": False, "rule": "ISO yyyy-mm-dd"}
+            return _parsed(out, "ISO yyyy-mm-dd")
 
     # Slash dates: MM/DD by default, DD/MM when the first part cannot be a month
     m = re.fullmatch(r"(\d{1,2})/(\d{1,2})/(\d{2}|\d{4})", s)
@@ -80,11 +84,11 @@ def parse_date(text: str | None) -> dict[str, Any]:
         if a > 12:
             out = _format(y, b, a)
             if out:
-                return {"date": out, "ambiguous": False, "rule": "DD/MM (first part > 12)"}
+                return _parsed(out, "DD/MM (first part > 12)")
         else:
             out = _format(y, a, b)
             if out:
-                return {"date": out, "ambiguous": b <= 12, "rule": "MM/DD default"}
+                return _parsed(out, "MM/DD default", ambiguous=b <= 12)
 
     return _error("validation", f"Unrecognised or invalid date: {text!r}")
 
@@ -97,9 +101,9 @@ def calc_stats(values: list[Any]) -> dict[str, Any]:
     for v in values:
         if v is None or (isinstance(v, str) and not v.strip()):
             continue
-        if isinstance(v, bool):
-            return _error("validation", f"Non-numeric value: {v!r}")
         try:
+            if isinstance(v, bool):          # True/False would otherwise count as 1/0
+                raise ValueError
             n = float(v)
         except (TypeError, ValueError):
             return _error("validation", f"Non-numeric value: {v!r}")

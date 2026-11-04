@@ -15,12 +15,29 @@ TOLERANCE = 0.005
 
 def read_csv(path: Path) -> list[list[str]]:
     with path.open(newline="", encoding="utf-8-sig") as f:
-        return [row for row in csv.reader(f)]
+        return list(csv.reader(f))
 
 
 def write_csv(path: Path, rows: list[list[str]]) -> None:
     with path.open("w", newline="", encoding="utf-8") as f:
         csv.writer(f).writerows(rows)
+
+
+def _cell(row: list[str], i: int) -> str:
+    """Cell text, treating cells missing from a short or blank row as empty."""
+    return row[i] if i < len(row) else ""
+
+
+def _key(entry: dict) -> tuple[int, str] | None:
+    """(row, column) of a free-form report entry; the row may arrive as an int or a numeric string."""
+    try:
+        return int(entry.get("row")), entry.get("column")
+    except (TypeError, ValueError):
+        return None
+
+
+def _keys(entries: list[dict]) -> set[tuple[int, str]]:
+    return {k for e in entries if (k := _key(e)) is not None}
 
 
 def check_shape(original: list[list[str]], merged: list[list[str]]) -> list[str]:
@@ -53,23 +70,6 @@ def check_dates(merged: list[list[str]], skip: set[tuple[int, str]] = frozenset(
     return errs
 
 
-def _key(entry: dict) -> tuple[int, str] | None:
-    """(row, column) of a free-form report entry; the row may arrive as an int or a numeric string."""
-    try:
-        return int(entry.get("row")), entry.get("column")
-    except (TypeError, ValueError):
-        return None
-
-
-def _keys(entries: list[dict]) -> set[tuple[int, str]]:
-    return {k for e in entries if (k := _key(e)) is not None}
-
-
-def _cell(row: list[str], i: int) -> str:
-    """Cell text, treating cells missing from a short or blank row as empty."""
-    return row[i] if i < len(row) else ""
-
-
 def check_totals(merged: list[list[str]]) -> list[str]:
     """Verify Total/Avg columns per row and the TOTAL row per column."""
     header = merged[0]
@@ -100,7 +100,7 @@ def check_totals(merged: list[list[str]]) -> list[str]:
         for ci in calc_cols:
             compare(ri, ci, stats["sum"] if header[ci] == "Total" else stats["average"])
 
-    for ri, row in total_rows:
+    for ri, _ in total_rows:
         # Total and raw columns sum the data rows; a filled Avg is the mean of the data rows' Avgs.
         for ci in raw_cols + sorted(calc_cols):
             stats = calc_stats([_cell(r, ci) for _, r in data])
@@ -145,9 +145,7 @@ def check_untouched(
     patched = {(p.row, p.column): p.new.strip() for p in patches}
     conflicted = _keys(report.conflicts)
     errs: list[str] = []
-    for ri, (orig_row, new_row) in enumerate(zip(original, merged)):
-        if ri == 0:
-            continue
+    for ri, (orig_row, new_row) in enumerate(zip(original[1:], merged[1:]), start=1):
         for ci in range(max(len(orig_row), len(new_row))):
             old, new = _cell(orig_row, ci), _cell(new_row, ci)
             if old == new:

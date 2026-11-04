@@ -154,3 +154,12 @@ def test_unknown_key_inside_a_patch_entry_is_rejected(root: Path) -> None:
 def test_agent_prompts_name_the_exact_keys() -> None:
     from agents import PATCH_SCHEMA
     assert '"patches"' in PATCH_SCHEMA and 'not "changes"' in PATCH_SCHEMA
+
+
+def test_invalid_merge_report_marks_agent3_failed_and_explains(root: Path) -> None:
+    work = root / "work" / TS
+    (work / "merged.csv").write_text("x")
+    (work / "merge_report.json").write_text('{"applied": 5}')
+    note = record_write(str(work / "merge_report.json"), root)
+    assert note and note.startswith("merge_report.json does not match the schema") and "Rewrite it" in note
+    assert load_manifest(work / "manifest.json").agents["agent3"].status == "failed"
