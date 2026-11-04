@@ -65,7 +65,6 @@ class MergeReport(BaseModel):
 
 class AgentState(BaseModel):
     status: Status = "pending"
-    files: list[str] = Field(default_factory=list)
 
 
 class Manifest(BaseModel):

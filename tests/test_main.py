@@ -117,7 +117,11 @@ def test_main_retries_once_and_combines_timing(run_dir: Path, monkeypatch: pytes
     assert len(calls) == 2 and "failed verification" in calls[1]
     assert (root / f"app1_updated_{TS}.csv").exists()
     assert "Elapsed seconds (coordinator run): 160.0" in (root / f"app1_changelog_{TS}.txt").read_text()
-    assert load_manifest(root / "work" / TS / "manifest.json").parallel_seconds == 10.0
+    manifest = load_manifest(root / "work" / TS / "manifest.json")
+    assert manifest.parallel_seconds == 10.0
+    # the fake coordinator writes files directly, so the PostToolUse hook never marks agent1/agent2 done;
+    # anything still pending once agent3 is done is recorded as skipped
+    assert {k: v.status for k, v in manifest.agents.items()} == {"agent1": "skipped", "agent2": "skipped", "agent3": "done"}
 
 
 def test_verify_csv_error_is_retryable_not_a_crash(run_dir: Path) -> None:
@@ -132,3 +136,71 @@ def test_verify_blank_line_in_merged_is_an_error_not_a_crash(run_dir: Path) -> N
     (run_dir / "merged.csv").write_text((FIXTURES / "expected_app1.csv").read_text() + "\n")
     errs, _ = main.verify(TS)
     assert errs                              # row count differs, reported cleanly
+
+
+# ---- characterization tests: pin today's behaviour before refactoring main.py ----------------------------
+
+def test_changelog_text_lists_every_section(run_dir: Path) -> None:
+    from schemas import AppliedPatch, Flag, PatchFile
+    report = MergeReport(
+        applied=[AppliedPatch(row=1, column="Date", old="03/04/2026", new="04-MAR-2026", reason="MM/DD default")],
+        ambiguous_dates=[{"row": 1, "original": "03/04/2026"}],
+        conflicts=[{"row": 2, "column": "Total"}],
+        unverifiable=[{"row": 3, "column": "Date", "message": "TBD"}])
+    pf = PatchFile(agent="agent1", run_timestamp=TS, patches=[], flags=[Flag(row=1, note="read as MM/DD")])
+    path = main.write_changelog(TS, report, [pf], {"elapsed": 12.34})
+    assert path == main.ROOT / f"app1_changelog_{TS}.txt"
+    assert path.read_text() == "\n".join([
+        f"Change log for run {TS}",
+        "Source: app1.csv (unchanged)",
+        "",
+        "Applied changes (1):",
+        "  row 1 Date: '03/04/2026' -> '04-MAR-2026' (MM/DD default)",
+        "",
+        "Ambiguous dates read as MM/DD (1):",
+        "  {'row': 1, 'original': '03/04/2026'}",
+        "",
+        "Conflicts, not applied (1):",
+        "  {'row': 2, 'column': 'Total'}",
+        "",
+        "Unverified cells (1):",
+        "  {'row': 3, 'column': 'Date', 'message': 'TBD'}",
+        "",
+        "Flags:",
+        "  [agent1] row 1: read as MM/DD",
+        "",
+        "Elapsed seconds (coordinator run): 12.3",
+        ""])
+
+
+def test_persistent_verification_failure_returns_1_and_keeps_the_manifest(
+        run_dir: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+    import asyncio
+    from schemas import load_manifest, save_manifest
+
+    root = main.ROOT
+    shutil.rmtree(root / "work")
+    monkeypatch.setattr(main, "make_timestamp", lambda: TS)
+    calls: list[str] = []
+
+    async def fake(prompt: str, options) -> dict:
+        calls.append(prompt)
+        work = root / "work" / TS
+        (work / "merged.csv").write_text((FIXTURES / "expected_app1.csv").read_text())
+        (work / "merge_report.json").write_text(MergeReport().model_dump_json())
+        (work / "agent1_patch.json").write_text('{"agent": "agent1", "run_timestamp": "x", "patches": []}')   # explains nothing
+        manifest = load_manifest(work / "manifest.json")
+        manifest.agents["agent3"].status = "done"
+        save_manifest(work / "manifest.json", manifest)
+        return {"elapsed": 50.0, "stage_seconds": 5.0, "cost": 0.25}
+
+    monkeypatch.setattr(main, "run_coordinator", fake)
+    assert asyncio.run(main.main()) == 1
+    assert len(calls) == 2                                           # first pass + exactly one retry
+    assert not (root / f"app1_updated_{TS}.csv").exists() and not (root / f"app1_changelog_{TS}.txt").exists()
+    captured = capsys.readouterr()
+    assert "still failing; no final files written" in captured.err and "without a matching patch" in captured.err
+    assert "[verify]" in captured.out                                # the retry announcement
+    manifest = load_manifest(root / "work" / TS / "manifest.json")
+    assert manifest.parallel_seconds == 10.0                         # 5.0 + 5.0 over the two passes
+    assert {k: v.status for k, v in manifest.agents.items()} == {"agent1": "skipped", "agent2": "skipped", "agent3": "done"}

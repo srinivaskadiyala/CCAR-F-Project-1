@@ -74,37 +74,37 @@ def record_write(file_path: str, root: Path) -> str | None:
     if not manifest_path.exists():
         return None
     manifest = load_manifest(manifest_path)
-    note: str | None = None
-
+    merged, report = path.parent / "merged.csv", path.parent / "merge_report.json"
     if name in PATCH_FILES:
-        agent = PATCH_FILES[name]
-        try:
-            PatchFile.model_validate_json(path.read_text())
-            manifest.agents[agent].status = "done"
-            manifest.agents[agent].files = [str(path)]
-        except (ValidationError, ValueError) as exc:
-            manifest.agents[agent].status = "failed"
-            note = f"{name} does not match the patch schema: {exc}. Rewrite it."
-    elif name in ("merged.csv", "merge_report.json"):
-        merged, report = path.parent / "merged.csv", path.parent / "merge_report.json"
-        if merged.exists() and report.exists():
-            try:
-                MergeReport.model_validate_json(report.read_text())
-                manifest.agents["agent3"].status = "done"
-                manifest.agents["agent3"].files = [str(merged), str(report)]
-            except (ValidationError, ValueError) as exc:
-                manifest.agents["agent3"].status = "failed"
-                note = f"merge_report.json does not match the schema: {exc}. Rewrite it."
+        agent, model, checked = PATCH_FILES[name], PatchFile, path
+        what = f"{name} does not match the patch schema"
+    elif name in ("merged.csv", "merge_report.json") and merged.exists() and report.exists():
+        agent, model, checked = "agent3", MergeReport, report                          # agent3 needs both files
+        what = "merge_report.json does not match the schema"
+    else:
+        return None
+
+    try:
+        model.model_validate_json(checked.read_text())
+    except (ValidationError, ValueError) as exc:
+        manifest.agents[agent].status = "failed"
+        note: str | None = f"{what}: {exc}. Rewrite it."
+    else:
+        manifest.agents[agent].status = "done"
+        note = None
     save_manifest(manifest_path, manifest)
     return note
+
+
+def _file_path(input_data: dict[str, Any]) -> str:
+    return input_data.get("tool_input", {}).get("file_path", "")
 
 
 def make_hooks(root: Path, run_ts: str):
     """Build (pre, post) async hook callbacks bound to a project root and the current run."""
 
     async def pre(input_data: dict[str, Any], tool_use_id: str | None, context: Any) -> dict[str, Any]:
-        file_path = input_data.get("tool_input", {}).get("file_path", "")
-        allowed, reason = decide_write(file_path, root, run_ts)
+        allowed, reason = decide_write(_file_path(input_data), root, run_ts)
         if allowed:
             return {}
         return {"hookSpecificOutput": {
@@ -113,8 +113,7 @@ def make_hooks(root: Path, run_ts: str):
             "permissionDecisionReason": reason}}
 
     async def post(input_data: dict[str, Any], tool_use_id: str | None, context: Any) -> dict[str, Any]:
-        file_path = input_data.get("tool_input", {}).get("file_path", "")
-        note = record_write(file_path, root)
+        note = record_write(_file_path(input_data), root)
         if note:
             return {"hookSpecificOutput": {
                 "hookEventName": "PostToolUse", "additionalContext": note}}
