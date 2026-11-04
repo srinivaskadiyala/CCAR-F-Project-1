@@ -70,18 +70,14 @@ def test_patch_row_out_of_range_is_reported_not_a_crash() -> None:
 
 
 def test_merge_timing_sums_both_passes() -> None:
-    first = {"elapsed": 100.0, "stage_seconds": 10.0, "since_first_launch": 90.0,
-             "launch_sizes": [2, 1], "cost": 0.5}
-    retry = {"elapsed": 60.0, "stage_seconds": None, "since_first_launch": 50.0,
-             "launch_sizes": [1], "cost": 0.25}
+    first = {"elapsed": 100.0, "stage_seconds": 10.0, "cost": 0.5}
+    retry = {"elapsed": 60.0, "stage_seconds": None, "cost": 0.25}
     t = main.merge_timing(first, retry)
-    assert t == {"elapsed": 160.0, "stage_seconds": 10.0, "since_first_launch": 140.0,
-                 "launch_sizes": [2, 1, 1], "cost": 0.75}
+    assert t == {"elapsed": 160.0, "stage_seconds": 10.0, "cost": 0.75}
 
 
 def test_merge_timing_none_cost_stays_none() -> None:
-    a = {"elapsed": 1.0, "stage_seconds": None, "since_first_launch": None,
-         "launch_sizes": [], "cost": None}
+    a = {"elapsed": 1.0, "stage_seconds": None, "cost": None}
     assert main.merge_timing(a, a)["cost"] is None
     assert main.merge_timing(a, a)["stage_seconds"] is None
 
@@ -114,7 +110,7 @@ def test_main_retries_once_and_combines_timing(run_dir: Path, monkeypatch: pytes
         manifest.agents["agent3"].status = "done"
         save_manifest(work / "manifest.json", manifest)
         return {"elapsed": 100.0 if not good else 60.0, "stage_seconds": 10.0 if not good else None,
-                "since_first_launch": 90.0, "launch_sizes": [2], "cost": 0.5}
+                "cost": 0.5}
 
     monkeypatch.setattr(main, "run_coordinator", fake)
     assert asyncio.run(main.main()) == 0

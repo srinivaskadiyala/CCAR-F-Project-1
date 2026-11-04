@@ -8,23 +8,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from tools import calc_stats, parse_date  # noqa: E402
 
 
-@pytest.mark.parametrize("text,expected,ambiguous", [
-    ("03/04/2026", "04-MAR-2026", True),
-    ("5-Mar-26", "05-MAR-2026", False),
-    ("2026-03-06", "06-MAR-2026", False),
-    ("March 7, 2026", "07-MAR-2026", False),
-    ("13/03/2026", "13-MAR-2026", False),
-    ("04-MAR-2026", "04-MAR-2026", False),
-    ("12/25/2026", "25-DEC-2026", False),
+@pytest.mark.parametrize("text,expected,ambiguous,rule", [
+    ("03/04/2026", "04-MAR-2026", True, "MM/DD"),
+    ("5-Mar-26", "05-MAR-2026", False, "d-Mon"),
+    ("2026-03-06", "06-MAR-2026", False, "ISO"),
+    ("March 7, 2026", "07-MAR-2026", False, "Month d"),
+    ("13/03/2026", "13-MAR-2026", False, "DD/MM"),       # first part > 12: read as DD/MM and say so
+    ("04-MAR-2026", "04-MAR-2026", False, "d-Mon"),
+    ("12/25/2026", "25-DEC-2026", False, "MM/DD"),
 ])
-def test_parse_date_valid(text: str, expected: str, ambiguous: bool) -> None:
+def test_parse_date_valid(text: str, expected: str, ambiguous: bool, rule: str) -> None:
     r = parse_date(text)
     assert r["date"] == expected
     assert r["ambiguous"] is ambiguous
-
-
-def test_parse_date_dd_mm_rule_reported() -> None:
-    assert "DD/MM" in parse_date("13/03/2026")["rule"]
+    assert rule in r["rule"]
 
 
 @pytest.mark.parametrize("text", ["", "   ", None])

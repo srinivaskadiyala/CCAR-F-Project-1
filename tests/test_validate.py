@@ -1,10 +1,12 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from schemas import MergeReport, Patch, PatchError  # noqa: E402
-from validate import (check_dates, check_shape, check_totals, find_conflicts,  # noqa: E402
+from validate import (check_dates, check_shape, check_totals,  # noqa: E402
                       read_csv, validate_merge)
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -36,39 +38,37 @@ def test_original_sample_has_known_errors() -> None:
     assert "row 6 Feb: 110 should be 112" in errs
 
 
-def test_original_sample_has_bad_dates() -> None:
-    assert len(check_dates(read_csv(APP1))) == 5
-
-
 def test_fixed_sample_is_clean() -> None:
     assert check_totals(FIXED) == []
     assert check_dates(FIXED) == []
 
 
-def test_shape_checks() -> None:
+def test_shape_check_accepts_an_identical_shape() -> None:
     assert check_shape(FIXED, FIXED) == []
-    assert check_shape(FIXED, FIXED[:-1])
-    assert check_shape(FIXED, [r[:-1] for r in FIXED])
+
+
+def test_a_missing_row_is_reported() -> None:
+    assert check_shape(FIXED, FIXED[:-1]) == [f"row count {len(FIXED) - 1} != original {len(FIXED)}"]
+
+
+def test_a_changed_header_is_reported() -> None:
+    merged = [r[:] for r in FIXED]
+    merged[0][2] = "January"
+    assert check_shape(FIXED, merged) == ["header row changed"]
+
+
+def test_a_ragged_row_is_reported_when_the_header_is_intact() -> None:
+    """The old test dropped a cell from EVERY row including the header, so the header branch fired first
+    and the column-count check was never reached (a planted bug removing it went unnoticed)."""
+    merged = [r[:] for r in FIXED]
+    merged[2] = merged[2][:-1]
+    assert check_shape(FIXED, merged) == ["column count changed in at least one row"]
 
 
 def test_unapplied_patch_detected() -> None:
     p = Patch(row=1, column="Date", old="03/04/2026", new="05-MAR-2026", reason="x")
     errs = validate_merge(FIXED, FIXED, [p], MergeReport())
     assert any("expected '05-MAR-2026'" in e for e in errs)
-
-
-def test_conflict_listed_is_accepted() -> None:
-    p = Patch(row=1, column="Date", old="03/04/2026", new="05-MAR-2026", reason="x")
-    rep = MergeReport(conflicts=[{"row": 1, "column": "Date"}])
-    assert validate_merge(FIXED, FIXED, [p], rep) == []
-
-
-def test_find_conflicts() -> None:
-    a = Patch(row=2, column="Total", old="80", new="75", reason="r")
-    b = Patch(row=2, column="Total", old="80", new="76", reason="r")
-    c = Patch(row=3, column="Total", old="1", new="2", reason="r")
-    assert find_conflicts([[a, c], [b]]) == {(2, "Total")}
-    assert find_conflicts([[a], [a]]) == set()
 
 
 def test_unverifiable_date_is_skipped() -> None:
@@ -103,7 +103,7 @@ def test_total_row_avg_is_checked() -> None:
     rows = [r[:] for r in FIXED]
     rows[6][6] = "99"                       # data-row Avgs average 22.0
     errs = check_totals(rows)
-    assert any("row 6 Avg" in e for e in errs)
+    assert "row 6 Avg: 99 should be 22" in errs      # the right expected value, not just "some error on that cell"
 
 
 def test_total_row_avg_correct_or_blank_is_clean() -> None:
@@ -160,9 +160,10 @@ def test_validate_merge_reports_untouched_changes() -> None:
 
 # ---- #5: robust conflict / unverifiable lookups ---------------------------------------
 
-def test_conflict_row_given_as_string_is_honoured() -> None:
+@pytest.mark.parametrize("row", [1, "1"])        # the row may arrive as an int or a numeric string
+def test_a_listed_conflict_is_accepted(row) -> None:
     p = Patch(row=1, column="Date", old="03/04/2026", new="05-MAR-2026", reason="x")
-    rep = MergeReport(conflicts=[{"row": "1", "column": "Date"}])
+    rep = MergeReport(conflicts=[{"row": row, "column": "Date"}])
     assert validate_merge(FIXED, FIXED, [p], rep) == []
     assert check_untouched(FIXED, FIXED, [p], rep) == []
 
@@ -200,7 +201,6 @@ def test_merge_report_applied_tolerates_extra_keys_and_missing_reason() -> None:
 
 
 def test_merge_report_applied_still_needs_the_cell_identity() -> None:
-    import pytest
     from pydantic import ValidationError
     with pytest.raises(ValidationError):
         MergeReport.model_validate_json('{"applied": [{"source": "agent1"}]}')

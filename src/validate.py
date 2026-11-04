@@ -160,18 +160,6 @@ def check_untouched(
     return errs
 
 
-def find_conflicts(patch_sets: list[list[Patch]]) -> set[tuple[int, str]]:
-    seen: dict[tuple[int, str], str] = {}
-    out: set[tuple[int, str]] = set()
-    for patches in patch_sets:
-        for p in patches:
-            key = (p.row, p.column)
-            if key in seen and seen[key] != p.new:
-                out.add(key)
-            seen.setdefault(key, p.new)
-    return out
-
-
 def validate_merge(
     original: list[list[str]], merged: list[list[str]],
     patches: list[Patch], report: MergeReport,

@@ -26,12 +26,15 @@ def _work_parts(path: Path, root: Path) -> tuple[str, str] | None:
     return (rel.parts[0], rel.parts[1]) if len(rel.parts) == 2 else None
 
 
+def _absolute(file_path: str, root: Path) -> Path:
+    """The tool's file_path as an absolute path (relative paths are taken from the project root)."""
+    path = Path(file_path).expanduser()
+    return path if path.is_absolute() else root / path
+
+
 def decide_write(file_path: str, root: Path, run_ts: str) -> tuple[bool, str]:
     """Return (allowed, reason) for a Write/Edit to file_path during run `run_ts`."""
-    path = Path(file_path).expanduser()
-    if not path.is_absolute():
-        path = root / path
-    path = path.resolve()
+    path = _absolute(file_path, root).resolve()
     root = root.resolve()
 
     if path == root / "app1.csv":
@@ -62,9 +65,7 @@ def decide_write(file_path: str, root: Path, run_ts: str) -> tuple[bool, str]:
 
 def record_write(file_path: str, root: Path) -> str | None:
     """After a successful Write, update the manifest. Returns a note on problems."""
-    path = Path(file_path).expanduser()
-    if not path.is_absolute():
-        path = root / path
+    path = _absolute(file_path, root)
     work = _work_parts(path, root)
     if not work:
         return None
