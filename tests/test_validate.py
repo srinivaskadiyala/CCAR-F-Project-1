@@ -204,3 +204,28 @@ def test_merge_report_applied_still_needs_the_cell_identity() -> None:
     from pydantic import ValidationError
     with pytest.raises(ValidationError):
         MergeReport.model_validate_json('{"applied": [{"source": "agent1"}]}')
+
+
+# ---- failure branches that had no test (ported from project2) --------------------------------------------------
+
+def test_a_patch_for_an_unknown_column_is_reported() -> None:
+    p = Patch(row=1, column="Nope", old="a", new="b", reason="r")
+    assert "patch column 'Nope' not in header" in validate_merge(FIXED, FIXED, [p], MergeReport())
+
+
+def test_a_non_numeric_calculated_cell_is_reported() -> None:
+    rows = [r[:] for r in FIXED]
+    rows[1][5] = "abc"
+    assert "row 1 Total: 'abc' is not numeric" in check_totals(rows)
+
+
+def test_a_non_numeric_raw_value_is_reported_for_its_row() -> None:
+    rows = [r[:] for r in FIXED]
+    rows[1][2] = "x"
+    assert "row 1: Non-numeric value: 'x'" in check_totals(rows)
+
+
+def test_junk_row_numbers_in_a_report_excuse_nothing() -> None:
+    p = Patch(row=1, column="Date", old="03/04/2026", new="05-MAR-2026", reason="r")
+    rep = MergeReport(conflicts=[{"row": "abc", "column": "Date"}, {"column": "Date"}])
+    assert any("patch row 1 Date" in e for e in validate_merge(FIXED, FIXED, [p], rep))

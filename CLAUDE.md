@@ -31,6 +31,25 @@
 - Change log: `app1_changelog_<YYYYMMDD_HHMMSS>.txt`, same timestamp.
 - Run artifacts go in `work/<YYYYMMDD_HHMMSS>/` (patches, `merged.csv`, `manifest.json`). `work/` is not committed.
 
+## Layout
+
+```
+project1/
+├── CLAUDE.md  pytest.ini  app1.csv (protected)
+├── .claude/{settings.json, rules/csv-conventions.md}
+├── docs/           INSTRUCTIONS.md (setup and usage), TUTORIAL.md (design and build steps)
+├── src/            main.py (coordinator run, verification, final write), agents.py (prompts),
+│                   hooks.py (write guards), tools.py (parse_date, calc_stats), schemas.py, validate.py
+├── tests/          unit tests, test_e2e.py (slow, real model); fixtures/ has expected_app1.csv, sample6.csv
+└── work/<ts>/      per-run artifacts (not in git)
+```
+
+## Method
+
+- Tests first, then implementation; run `pytest` before every commit. Live tests are marked `slow`: `pytest -m slow`.
+- Compare live output cell for cell with `tests/fixtures/expected_app1.csv`.
+- Work on a branch; commit, PR and merge only when asked.
+
 ## Documentation
 
 - Treat `docs/INSTRUCTIONS.md` as code: update it in the same change whenever setup steps, commands, test counts, costs, file layout or behaviour it describes change.
