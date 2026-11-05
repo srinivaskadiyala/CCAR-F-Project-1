@@ -73,3 +73,8 @@ def test_calc_stats_rejects_non_finite(bad) -> None:
 def test_calc_stats_rejects_booleans(bad) -> None:
     r = calc_stats([1, bad])
     assert r["isError"] is True and r["errorCategory"] == "validation"
+
+
+def test_calc_stats_rejects_input_that_is_not_a_list() -> None:
+    r = calc_stats("1,2,3")
+    assert r["isError"] is True and "list" in r["message"]
