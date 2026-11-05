@@ -57,7 +57,7 @@ the project folder.
 
 ```bash
 cd ~/Training
-python3.13 -m venv .venv
+/opt/homebrew/opt/python@3.13/bin/python3.13 -m venv .venv
 source .venv/bin/activate
 pip install claude-agent-sdk pytest pydantic
 ```
@@ -70,9 +70,13 @@ python -c "import claude_agent_sdk; print('SDK OK')"
 
 Notes:
 
-- **Always create the venv with an explicit version (`python3.13`).** Plain
-  `python3` on a Mac may be the old system Python 3.9, which is too old and does
-  not work with the SDK. If `python -c "import claude_agent_sdk"` fails with
+- **Create the venv with Homebrew's stable Python path, as above.** Plain `python3`
+  on a Mac may be the old system Python 3.9, which is too old and does not work with
+  the SDK. Typing just `python3.13` is not safe either: if another venv is active
+  when you run it, that venv's interpreter is used, and the new venv ends up linked to
+  a version-specific folder (`.../Cellar/python@3.13/3.13.16/...`) that Homebrew
+  deletes on the next Python upgrade. The stable path (`/opt/homebrew/opt/python@3.13`)
+  always points at the current version. If `python -c "import claude_agent_sdk"` fails with
   `ModuleNotFoundError` even after installing, your venv's `python` is probably the
   wrong version. Check with `python --version`, or call the right one directly:
   `~/Training/.venv/bin/python3.13`.
@@ -300,7 +304,8 @@ Shift+Tab to switch to plan mode before larger changes.
 
 | Problem | Likely cause and fix |
 |---|---|
-| `ModuleNotFoundError: claude_agent_sdk` | The venv is not active, or its `python` is the old 3.9. Run `source ~/Training/.venv/bin/activate` and check `python --version` is 3.10 or newer. Otherwise recreate the venv with `python3.13 -m venv`. |
+| `ModuleNotFoundError: claude_agent_sdk` | The venv is not active, or its `python` is the old 3.9. Run `source ~/Training/.venv/bin/activate` and check `python --version` is 3.10 or newer. Otherwise recreate the venv with `/opt/homebrew/opt/python@3.13/bin/python3.13 -m venv`. |
+| `python: no such file or directory` inside the venv after `brew upgrade` | The venv was linked to the old version-specific Python folder, which Homebrew deleted. Repair it (your packages are kept): `rm ~/Training/.venv/bin/python3.13 && /opt/homebrew/opt/python@3.13/bin/python3.13 -m venv --upgrade ~/Training/.venv`. |
 | `key set:` prints nothing | You have not run `source ~/Training/.env.sh` in this terminal, or the file is missing or has no `export ANTHROPIC_API_KEY=...` line. |
 | Authentication or 401 errors | The key is wrong, expired or out of credit. Check it in the Anthropic console. |
 | `pytest` says `2 deselected` | Normal. Those are the paid end-to-end tests. Use `pytest -m slow` to include them. |
